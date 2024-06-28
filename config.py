@@ -41,12 +41,12 @@ class ScriptArguments:
     load_in_8bit: Optional[bool] = field(default=False, metadata={"help": "load the model in 8 bits precision"})
     load_in_4bit: Optional[bool] = field(default=False, metadata={"help": "load the model in 4 bits precision"})
     use_peft: Optional[bool] = field(default=False, metadata={"help": "Wether to use PEFT or not to train adapters"})
-    trust_remote_code: Optional[bool] = field(default=False, metadata={"help": "Enable `trust_remote_code`"})
+    trust_remote_code: Optional[bool] = field(default=True, metadata={"help": "Enable `trust_remote_code`"})
     output_dir: Optional[str] = field(default="output", metadata={"help": "the output directory"})
     peft_lora_r: Optional[int] = field(default=8, metadata={"help": "the r parameter of the LoRA adapters"})
     peft_lora_alpha: Optional[int] = field(default=16, metadata={"help": "the alpha parameter of the LoRA adapters"})
     logging_steps: Optional[int] = field(default=100, metadata={"help": "the number of logging steps"})
-    use_auth_token: Optional[bool] = field(default=False, metadata={"help": "Use HF auth token to access the model"})   # token and use_auth_token cannot be used together
+    use_auth_token: Optional[bool] = field(default=True, metadata={"help": "Use HF auth token to access the model"})   # token and use_auth_token cannot be used together
     num_train_epochs: Optional[int] = field(default=3, metadata={"help": "the number of training epochs"})
     max_steps: Optional[int] = field(default=10, metadata={"help": "the number of training steps"})
     save_steps: Optional[int] = field(
