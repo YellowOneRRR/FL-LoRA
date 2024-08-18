@@ -2,6 +2,7 @@ import copy
 import os
 from tqdm import tqdm
 import numpy as np
+from datasets import Dataset
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import DataCollatorForCompletionOnlyLM
@@ -18,7 +19,7 @@ save_config(script_args, fed_args)
 print(script_args, fed_args)
 
 # ===== Load the dataset =====
-dataset = get_dataset(script_args.dataset_name, script_args.local_data_dir)
+dataset = Dataset.load_from_disk(dataset_path="../transformers-code/03-PEFT/data/alpaca_data_zh")
 dataset = process_sft_dataset(script_args.dataset_name, dataset, script_args.dataset_sample)
 
 # ===== Split the dataset into clients =====
@@ -38,8 +39,8 @@ model = AutoModelForCausalLM.from_pretrained(
 
 if script_args.load_in_8bit or script_args.load_in_4bit:
     model = prepare_model_for_kbit_training(
-                model, use_gradient_checkpointing=training_args.gradient_checkpointing
-            )
+        model, use_gradient_checkpointing=training_args.gradient_checkpointing
+    )
 
 model = get_peft_model(model, peft_config)
 model.print_trainable_parameters()
@@ -56,13 +57,14 @@ proxy_dict, opt_proxy_dict = get_proxy_dict(fed_args, global_dict)
 global_auxiliary, auxiliary_model_list, auxiliary_delta_dict = get_auxiliary_dict(fed_args, global_dict)
 
 # ===== Define the tokenizer =====
-tokenizer = AutoTokenizer.from_pretrained(script_args.model_name_or_path, use_fast=False, padding_side="right")
+tokenizer = AutoTokenizer.from_pretrained(script_args.model_name_or_path, use_fast=True, padding_side="right")
 if tokenizer.pad_token is None:
-    tokenizer.pad_token = tokenizer.unk_token   # following vicuna
+    tokenizer.pad_token = tokenizer.unk_token  # following vicuna
 
 # ===== Define the formatting function (cater to TRL SFTTrainer)=====
 formatting_prompts_func, response_template = get_formatting_prompts_func(script_args.template, tokenizer.eos_token)
-response_template_ids = tokenizer.encode(response_template, add_special_tokens=False)[2:]   # Now we have it like in the dataset texts: `[2277, 29937, 4007, 22137, 29901]` for Llama2
+response_template_ids = tokenizer.encode(response_template, add_special_tokens=False)[
+                        2:]  # Now we have it like in the dataset texts: `[2277, 29937, 4007, 22137, 29901]` for Llama2
 data_collator = DataCollatorForCompletionOnlyLM(response_template_ids, tokenizer=tokenizer)
 
 # ===== Start federated training =====
@@ -72,18 +74,20 @@ for round in tqdm(range(fed_args.num_rounds)):
 
     clients_this_round = get_clients_this_round(fed_args, round)
 
-    print(f">> ==================== Round {round+1} : {clients_this_round} ====================")
-    
+    print(f">> ==================== Round {round + 1} : {clients_this_round} ====================")
+
     for client in range(fed_args.num_clients):
 
         if client not in clients_this_round:
-            training_loss[client].append(-1)            # -1 is an indicator of not training
+            training_loss[client].append(-1)  # -1 is an indicator of not training
             continue
 
-        set_peft_model_state_dict(model, global_dict)   # sync the global model to the local model
+        set_peft_model_state_dict(model, global_dict)  # sync the global model to the local model
 
-        sub_dataset = get_dataset_this_round(local_datasets[client], round, fed_args, script_args)      # get the required sub-dataset for this round
-        new_lr = cosine_learning_rate(round, fed_args.num_rounds, script_args.learning_rate, 1e-6)      # manually schedule the learning rate
+        sub_dataset = get_dataset_this_round(local_datasets[client], round, fed_args,
+                                             script_args)  # get the required sub-dataset for this round
+        new_lr = cosine_learning_rate(round, fed_args.num_rounds, script_args.learning_rate,
+                                      1e-6)  # manually schedule the learning rate
         training_args = get_training_args(script_args, new_lr)
 
         # ===== Train local model on the client side =====
@@ -108,7 +112,7 @@ for round in tqdm(range(fed_args.num_rounds)):
         if fed_args.fed_alg == 'scaffold':
             auxiliary_model_list[client], auxiliary_delta_dict[client] = trainer.get_auxiliary_param()
 
-        local_dict_list[client] = copy.deepcopy(get_peft_model_state_dict(model))   # copy is needed!
+        local_dict_list[client] = copy.deepcopy(get_peft_model_state_dict(model))  # copy is needed!
 
     # ===== Server aggregates the local models =====
     global_dict, global_auxiliary = global_aggregate(
@@ -116,10 +120,10 @@ for round in tqdm(range(fed_args.num_rounds)):
         clients_this_round, round, proxy_dict=proxy_dict, \
         opt_proxy_dict=opt_proxy_dict, auxiliary_info=(global_auxiliary, auxiliary_delta_dict)
     )
-    set_peft_model_state_dict(model, global_dict)   # Update global model
+    set_peft_model_state_dict(model, global_dict)  # Update global model
 
     # ===== Save the model =====
-    if (round+1) % fed_args.save_model_freq == 0:
-        trainer.save_model(os.path.join(script_args.output_dir, f"checkpoint-{round+1}"))
-    
+    if (round + 1) % fed_args.save_model_freq == 0:
+        trainer.save_model(os.path.join(script_args.output_dir, f"checkpoint-{round + 1}"))
+
     np.save(os.path.join(script_args.output_dir, "training_loss.npy"), np.array(training_loss))
